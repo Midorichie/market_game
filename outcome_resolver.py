@@ -1,62 +1,38 @@
-import json
-from typing import Dict, Any, Optional
 import requests
+from typing import Dict, Any
+from web3 import Web3
+from stacks import StacksClient
 
-class EventManager:
-    def __init__(self, data_sources: list):
-        """
-        Initialize event manager with external data sources
-        
-        :param data_sources: List of APIs/sources for event data
-        """
+class DecentralizedOracle:
+    def __init__(self, data_sources: List[str]):
         self.data_sources = data_sources
-        self.events: Dict[int, Dict[str, Any]] = {}
-    
-    def fetch_event_outcomes(self, event_id: int) -> Optional[int]:
+        self.stake_threshold = 0.7  # Consensus threshold
+        self.reputation_scores = {}
+
+    def validate_outcome(self, event_id: str) -> Dict[str, Any]:
         """
-        Resolve event outcomes by querying multiple data sources
-        
-        :param event_id: Unique identifier for the event
-        :return: Resolved outcome or None
+        Multi-source outcome validation with reputation-weighted consensus
         """
-        outcomes = []
+        outcomes = {}
         for source in self.data_sources:
             try:
-                response = requests.get(f"{source}/events/{event_id}")
-                data = response.json()
-                outcomes.append(data.get('outcome'))
+                response = self._fetch_outcome(source, event_id)
+                outcomes[source] = response
+                self._update_reputation(source, response['reliability'])
             except Exception as e:
-                print(f"Error fetching from {source}: {e}")
-        
-        # Basic consensus mechanism
-        if len(set(outcomes)) == 1:
-            return outcomes[0]
-        return None
+                print(f"Source {source} failed: {e}")
 
-class OutcomeResolver:
-    @staticmethod
-    def calculate_payouts(event_data: Dict, predictions: list) -> list:
+        # Implement weighted consensus mechanism
+        consensus_outcome = self._calculate_consensus(outcomes)
+        return consensus_outcome
+
+    def _calculate_consensus(self, outcomes: Dict) -> Dict:
         """
-        Calculate payouts for correct predictions
-        
-        :param event_data: Event details including resolved outcome
-        :param predictions: List of user predictions
-        :return: List of payouts
+        Calculate consensus with reputation-weighted voting
         """
-        correct_predictions = [
-            pred for pred in predictions 
-            if pred['prediction'] == event_data['outcome']
-        ]
-        
-        total_correct_stake = sum(pred['bet_amount'] for pred in correct_predictions)
-        total_event_pool = event_data['total_pool']
-        
-        payouts = []
-        for pred in correct_predictions:
-            payout = (pred['bet_amount'] / total_correct_stake) * total_event_pool
-            payouts.append({
-                'user': pred['user'],
-                'amount': payout
-            })
-        
-        return payouts
+        weighted_outcomes = {}
+        for source, outcome in outcomes.items():
+            reputation = self.reputation_scores.get(source, 1.0)
+            weighted_outcomes[outcome] = weighted_outcomes.get(outcome, 0) + reputation
+
+        return max(weighted_outcomes, key=weighted_outcomes.get)

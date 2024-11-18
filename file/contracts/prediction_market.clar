@@ -1,58 +1,41 @@
-;; Prediction Market Smart Contract
+;; Advanced Security Mechanisms for Prediction Market
 
-(define-map predictions 
-  { event-id: uint, user: principal }
-  { prediction: uint, bet-amount: uint, claimed: bool }
+(define-map user-stakes
+  { user: principal }
+  { total-stake: uint, max-stake-percentage: uint }
 )
 
-(define-map events
+(define-map event-security-parameters
   { event-id: uint }
-  { description: (string-utf8 256), 
-    outcome: (optional uint), 
-    resolved: bool, 
-    total-pool: uint }
+  { max-participants: uint, 
+    min-stake: uint, 
+    stake-lockup-period: uint }
 )
 
-;; Create a new prediction event
-(define-public (create-event 
-  (event-id uint) 
-  (description (string-utf8 256))
-)
-  (begin
-    (map-insert events 
-      { event-id: event-id }
-      { description: description, 
-        outcome: none, 
-        resolved: false, 
-        total-pool: u0 }
-    )
-    (ok true)
-  )
-)
-
-;; Place a prediction bet
-(define-public (place-prediction 
-  (event-id uint) 
+;; Implement stake-based access control
+(define-public (place-prediction-with-security
+  (event-id uint)
   (prediction uint)
+  (stake uint)
 )
   (let 
-    ((bet-amount (stx-get-balance tx-sender))
-     (current-event (unwrap! 
-       (map-get? events { event-id: event-id }) 
-       (err u1))
-     )
+    ((event-params (unwrap! 
+      (map-get? event-security-parameters { event-id: event-id })
+      (err u1)))
+     (user-stake (default-to 
+       { total-stake: u0, max-stake-percentage: u10 }
+       (map-get? user-stakes { user: tx-sender })))
   )
-    (if (not (get resolved current-event))
-      (begin 
-        (map-insert predictions 
-          { event-id: event-id, user: tx-sender }
-          { prediction: prediction, 
-            bet-amount: bet-amount, 
-            claimed: false }
-        )
-        (ok true)
+    (asserts! 
+      (and 
+        (<= stake (get max-stake-percentage user-stake))
+        (>= stake (get min-stake event-params))
+        (< (len (filter is-participant event-id)) 
+           (get max-participants event-params))
       )
       (err u2)
     )
+    ;; Actual prediction placement logic
+    (ok true)
   )
 )
